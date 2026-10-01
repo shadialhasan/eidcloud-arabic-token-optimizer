@@ -1,0 +1,341 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+/**
+ * EidCloud Arabic Token Optimizer CLI
+ *
+ * High-efficiency Arabic text compressor and token optimizer for LLMs.
+ * Copyright (c) 2026 MHD. Shadi AL-Hasan. Licensed under the MIT License.
+ */
+
+// Zero-dependency PSR-4 autoloader
+spl_autoload_register(static function (string $class): void {
+    $prefix = 'EidCloud\\ArabicTokenOptimizer\\';
+    if (!str_starts_with($class, $prefix)) {
+        return;
+    }
+    $relativeClass = substr($class, strlen($prefix));
+    $file = dirname(__DIR__) . '/src/' . str_replace('\\', '/', $relativeClass) . '.php';
+    if (file_exists($file)) {
+        require_once $file;
+    }
+});
+
+use EidCloud\ArabicTokenOptimizer\ArabicTokenOptimizer;
+use EidCloud\ArabicTokenOptimizer\Engine\OptimizationLevel;
+use EidCloud\ArabicTokenOptimizer\Engine\OptimizationOptions;
+use EidCloud\ArabicTokenOptimizer\Engine\OptimizationResult;
+use EidCloud\ArabicTokenOptimizer\Engine\Optimizer;
+use EidCloud\ArabicTokenOptimizer\Tokenizer\TokenizerModel;
+
+// Terminal colors helper
+final class CliConsole
+{
+    public static function isColorSupported(): bool
+    {
+        if (DIRECTORY_SEPARATOR === '\\') {
+            return (function_exists('sapi_windows_vt100_support') && @sapi_windows_vt100_support(STDOUT))
+                || getenv('ANSICON') !== false
+                || getenv('ConEmuANSI') === 'ON'
+                || getenv('TERM') === 'xterm';
+        }
+        return function_exists('posix_isatty') && @posix_isatty(STDOUT);
+    }
+
+    public static function color(string $text, string $color): string
+    {
+        if (!self::isColorSupported()) {
+            return $text;
+        }
+
+        $codes = [
+            'bold' => "\033[1m",
+            'dim' => "\033[2m",
+            'green' => "\033[32m",
+            'cyan' => "\033[36m",
+            'yellow' => "\033[33m",
+            'blue' => "\033[34m",
+            'magenta' => "\033[35m",
+            'red' => "\033[31m",
+            'white' => "\033[37m",
+            'reset' => "\033[0m",
+        ];
+
+        return ($codes[$color] ?? '') . $text . $codes['reset'];
+    }
+}
+
+function printHelp(): void
+{
+    $appName = 'eidcloud-arabic-opt';
+    $version = ArabicTokenOptimizer::VERSION;
+
+    echo CliConsole::color("⚡ EidCloud Arabic Token Optimizer v{$version}", 'bold') . "\n";
+    echo CliConsole::color("High-efficiency Arabic text compression & token optimization engine for LLMs\n", 'dim');
+    echo "Copyright (c) 2026 MHD. Shadi AL-Hasan <mhd.shadi.alhasan@gmail.com>\n\n";
+
+    echo CliConsole::color("USAGE:\n", 'yellow');
+    echo "  php {$appName} compress <text|file> [options]\n";
+    echo "  php {$appName} <text|file> [options]\n";
+    echo "  cat file.txt | php {$appName} compress - [options]\n\n";
+
+    echo CliConsole::color("COMMANDS:\n", 'yellow');
+    echo "  " . CliConsole::color("compress", 'green') . "     Compress and optimize Arabic text or file\n";
+    echo "  " . CliConsole::color("stats", 'green') . "        Display token and cost metrics without altering source\n\n";
+
+    echo CliConsole::color("OPTIONS:\n", 'yellow');
+    echo "  " . CliConsole::color("-o, --out=<file>", 'cyan') . "           Save optimized output directly to a file\n";
+    echo "  " . CliConsole::color("-s, --stats", 'cyan') . "                Display formatted token savings and financial stats\n";
+    echo "  " . CliConsole::color("-j, --json", 'cyan') . "                 Output complete results in machine-readable JSON format\n";
+    echo "  " . CliConsole::color("-l, --level=<name>", 'cyan') . "         Optimization level: conservative, balanced (default), aggressive\n";
+    echo "  " . CliConsole::color("-m, --model=<model>", 'cyan') . "        Target tokenizer: gpt-4o (default), gpt-4, llama3, claude\n";
+    echo "  " . CliConsole::color("--preserve-tashkeel", 'cyan') . "        Preserve diacritics (Fatha, Damma, Kasra, Shadda, etc.)\n";
+    echo "  " . CliConsole::color("--preserve-hamza", 'cyan') . "           Preserve erratic Hamza variations (أ, إ, آ, ٱ)\n";
+    echo "  " . CliConsole::color("--preserve-tatweel", 'cyan') . "         Preserve Kashida/Tatweel (ـ)\n";
+    echo "  " . CliConsole::color("--normalize-teh-marbuta", 'cyan') . "    Convert Teh Marbuta (ة) to Heh (ه)\n";
+    echo "  " . CliConsole::color("--normalize-alef-maksura", 'cyan') . "   Convert Alef Maksura (ى) to Yeh (ي)\n";
+    echo "  " . CliConsole::color("-h, --help", 'cyan') . "                 Show this help message\n";
+    echo "  " . CliConsole::color("-v, --version", 'cyan') . "              Show version information\n\n";
+
+    echo CliConsole::color("EXAMPLES:\n", 'yellow');
+    echo "  # Quick string compression\n";
+    echo "  php {$appName} compress \"مــــرحـــبـــاً بِــكُـــمْ فِـي عَـالَـمِ الذَّكَاءِ الإصْطِنَاعِيِّ\"\n\n";
+    echo "  # Compress file with stats output\n";
+    echo "  php {$appName} compress prompt.txt --out=prompt_opt.txt --stats\n\n";
+    echo "  # Aggressive compression with JSON output for pipeline automation\n";
+    echo "  php {$appName} compress query.txt --level=aggressive --json\n\n";
+}
+
+function printStatsTable(OptimizationResult $res): void
+{
+    $line = str_repeat("─", 64);
+    echo "\n" . CliConsole::color("┌{$line}┐", 'cyan') . "\n";
+    echo CliConsole::color("│", 'cyan') . " " . CliConsole::color("⚡ EidCloud Arabic Token Optimization Report", 'bold') . str_repeat(" ", 19) . CliConsole::color("│", 'cyan') . "\n";
+    echo CliConsole::color("├{$line}┤", 'cyan') . "\n";
+
+    printf(
+        CliConsole::color("│", 'cyan') . "  %-24s: %-34s " . CliConsole::color("│", 'cyan') . "\n",
+        "Target Model",
+        $res->options->targetModel
+    );
+    printf(
+        CliConsole::color("│", 'cyan') . "  %-24s: %-34s " . CliConsole::color("│", 'cyan') . "\n",
+        "Execution Time",
+        sprintf("%.2f ms", $res->executionTimeMs)
+    );
+    echo CliConsole::color("├{$line}┤", 'cyan') . "\n";
+
+    printf(
+        CliConsole::color("│", 'cyan') . "  %-18s │ %-10s │ %-10s │ %-14s " . CliConsole::color("│", 'cyan') . "\n",
+        "Metric", "Original", "Optimized", "Saved / Reduction"
+    );
+    echo CliConsole::color("├{$line}┤", 'cyan') . "\n";
+
+    // Tokens
+    $tokenSavingsStr = sprintf("%d (%s%%)", $res->tokensSaved, CliConsole::color(number_format($res->tokensSavingsPercentage, 1), 'green'));
+    printf(
+        CliConsole::color("│", 'cyan') . "  %-18s │ %-10d │ %-10d │ %-23s " . CliConsole::color("│", 'cyan') . "\n",
+        "Tokens (BPE Est.)",
+        $res->rawTokens,
+        $res->optimizedTokens,
+        $tokenSavingsStr
+    );
+
+    // Characters
+    $charSavingsStr = sprintf("%d (%s%%)", $res->charsSaved, number_format($res->charsSavingsPercentage, 1));
+    printf(
+        CliConsole::color("│", 'cyan') . "  %-18s │ %-10d │ %-10d │ %-14s " . CliConsole::color("│", 'cyan') . "\n",
+        "Characters",
+        $res->rawChars,
+        $res->optimizedChars,
+        $charSavingsStr
+    );
+
+    // Bytes
+    $byteSavingsStr = sprintf("%d (%s%%)", $res->bytesSaved, number_format($res->bytesSavingsPercentage, 1));
+    printf(
+        CliConsole::color("│", 'cyan') . "  %-18s │ %-10d │ %-10d │ %-14s " . CliConsole::color("│", 'cyan') . "\n",
+        "Bytes (UTF-8)",
+        $res->rawBytes,
+        $res->optimizedBytes,
+        $byteSavingsStr
+    );
+
+    echo CliConsole::color("├{$line}┤", 'cyan') . "\n";
+
+    // Financial projected savings
+    $savingsPerMillion = $res->tokensSaved * $res->options->costPerMillionTokensUsd;
+    printf(
+        CliConsole::color("│", 'cyan') . "  %-32s: %-26s " . CliConsole::color("│", 'cyan') . "\n",
+        "Cost Rate (per 1M tokens)",
+        sprintf("$%.2f USD", $res->options->costPerMillionTokensUsd)
+    );
+    printf(
+        CliConsole::color("│", 'cyan') . "  %-32s: %-35s " . CliConsole::color("│", 'cyan') . "\n",
+        "Projected Savings / 1M Requests",
+        CliConsole::color(sprintf("$%.2f USD", $savingsPerMillion), 'green')
+    );
+
+    echo CliConsole::color("└{$line}┘", 'cyan') . "\n\n";
+}
+
+// Parse Command Line Arguments
+$argvCopy = $argv;
+array_shift($argvCopy); // remove script name
+
+if (empty($argvCopy)) {
+    printHelp();
+    exit(0);
+}
+
+// Flags parsing
+$optionsMap = [
+    'help' => false,
+    'version' => false,
+    'stats' => false,
+    'json' => false,
+    'out' => null,
+    'level' => 'balanced',
+    'model' => 'gpt-4o',
+    'preserve-tashkeel' => false,
+    'preserve-hamza' => false,
+    'preserve-tatweel' => false,
+    'normalize-teh-marbuta' => false,
+    'normalize-alef-maksura' => false,
+];
+
+$positionalArgs = [];
+
+for ($i = 0; $i < count($argvCopy); $i++) {
+    $arg = $argvCopy[$i];
+
+    if ($arg === '-h' || $arg === '--help') {
+        $optionsMap['help'] = true;
+    } elseif ($arg === '-v' || $arg === '--version') {
+        $optionsMap['version'] = true;
+    } elseif ($arg === '-s' || $arg === '--stats') {
+        $optionsMap['stats'] = true;
+    } elseif ($arg === '-j' || $arg === '--json') {
+        $optionsMap['json'] = true;
+    } elseif (str_starts_with($arg, '--out=')) {
+        $optionsMap['out'] = substr($arg, 6);
+    } elseif ($arg === '-o') {
+        $optionsMap['out'] = $argvCopy[++$i] ?? null;
+    } elseif (str_starts_with($arg, '--level=')) {
+        $optionsMap['level'] = substr($arg, 8);
+    } elseif ($arg === '-l') {
+        $optionsMap['level'] = $argvCopy[++$i] ?? 'balanced';
+    } elseif (str_starts_with($arg, '--model=')) {
+        $optionsMap['model'] = substr($arg, 8);
+    } elseif ($arg === '-m') {
+        $optionsMap['model'] = $argvCopy[++$i] ?? 'gpt-4o';
+    } elseif ($arg === '--preserve-tashkeel') {
+        $optionsMap['preserve-tashkeel'] = true;
+    } elseif ($arg === '--preserve-hamza') {
+        $optionsMap['preserve-hamza'] = true;
+    } elseif ($arg === '--preserve-tatweel') {
+        $optionsMap['preserve-tatweel'] = true;
+    } elseif ($arg === '--normalize-teh-marbuta') {
+        $optionsMap['normalize-teh-marbuta'] = true;
+    } elseif ($arg === '--normalize-alef-maksura') {
+        $optionsMap['normalize-alef-maksura'] = true;
+    } else {
+        $positionalArgs[] = $arg;
+    }
+}
+
+if ($optionsMap['help']) {
+    printHelp();
+    exit(0);
+}
+
+if ($optionsMap['version']) {
+    echo "eidcloud-arabic-token-optimizer v" . ArabicTokenOptimizer::VERSION . "\n";
+    exit(0);
+}
+
+// Handle subcommands
+$command = 'compress';
+if (!empty($positionalArgs) && in_array(strtolower($positionalArgs[0]), ['compress', 'optimize', 'stats'], true)) {
+    $command = strtolower(array_shift($positionalArgs));
+    if ($command === 'stats') {
+        $optionsMap['stats'] = true;
+    }
+}
+
+// Determine input text or input file
+$inputSource = $positionalArgs[0] ?? null;
+
+if ($inputSource === null || $inputSource === '-') {
+    // Read from standard input
+    $rawInput = '';
+    $fp = fopen('php://stdin', 'r');
+    if ($fp) {
+        while (!feof($fp)) {
+            $rawInput .= fread($fp, 8192);
+        }
+        fclose($fp);
+    }
+} elseif (file_exists($inputSource)) {
+    $rawInput = (string) file_get_contents($inputSource);
+} else {
+    // Treat as direct literal text
+    $rawInput = $inputSource;
+}
+
+if ($rawInput === '') {
+    if (!$optionsMap['json']) {
+        fwrite(STDERR, CliConsole::color("Error: No input text or file provided.\n\n", 'red'));
+        printHelp();
+    } else {
+        echo json_encode(['error' => 'No input text or file provided'], JSON_PRETTY_PRINT);
+    }
+    exit(1);
+}
+
+// Configure options
+$baseOptions = OptimizationOptions::fromLevel($optionsMap['level']);
+$customOptions = new OptimizationOptions(
+    stripTatweel: $optionsMap['preserve-tatweel'] ? false : $baseOptions->stripTatweel,
+    normalizeWhitespace: $baseOptions->normalizeWhitespace,
+    normalizeHamza: $optionsMap['preserve-hamza'] ? false : $baseOptions->normalizeHamza,
+    normalizeTehMarbuta: $optionsMap['normalize-teh-marbuta'] ? true : $baseOptions->normalizeTehMarbuta,
+    normalizeAlefMaksura: $optionsMap['normalize-alef-maksura'] ? true : $baseOptions->normalizeAlefMaksura,
+    stripRepeatingPunctuation: $baseOptions->stripRepeatingPunctuation,
+    stripTashkeel: $optionsMap['preserve-tashkeel'] ? false : $baseOptions->stripTashkeel,
+    preserveMarkdownCode: $baseOptions->preserveMarkdownCode,
+    targetModel: $optionsMap['model'],
+    costPerMillionTokensUsd: TokenizerModel::fromString($optionsMap['model'])->getCostPerMillionUsd()
+);
+
+$optimizer = new Optimizer();
+$result = $optimizer->optimize($rawInput, $customOptions);
+
+// Output handling
+if ($optionsMap['out'] !== null) {
+    $targetDir = dirname($optionsMap['out']);
+    if (!is_dir($targetDir)) {
+        mkdir($targetDir, 0777, true);
+    }
+    file_put_contents($optionsMap['out'], $result->optimizedText);
+}
+
+if ($optionsMap['json']) {
+    echo $result->toJson() . "\n";
+    exit(0);
+}
+
+if ($optionsMap['out'] === null) {
+    // If no output file specified, print the optimized text
+    echo $result->optimizedText . "\n";
+} else {
+    echo CliConsole::color("✔ Successfully optimized and saved to: ", 'green') . $optionsMap['out'] . "\n";
+}
+
+if ($optionsMap['stats']) {
+    printStatsTable($result);
+}
+
+exit(0);

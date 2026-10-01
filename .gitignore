@@ -1,0 +1,14 @@
+/vendor/
+composer.lock
+.phpunit.result.cache
+*.log
+.env
+.env.backup
+.DS_Store
+Thumbs.db
+*.cache
+.idea/
+.vscode/
+tmp/
+output.txt
+test_output.txt

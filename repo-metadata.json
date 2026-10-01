@@ -1,0 +1,12 @@
+{
+  "description": "High-efficiency Arabic text compressor and token optimizer reducing LLM token billing by 25-40% in pure PHP",
+  "topics": [
+    "eidcloud",
+    "arabic-nlp",
+    "token-optimizer",
+    "llm-cost-reduction",
+    "arabic-llm",
+    "text-compression",
+    "php8"
+  ]
+}

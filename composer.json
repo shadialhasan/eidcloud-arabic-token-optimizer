@@ -1,0 +1,42 @@
+{
+  "name": "eidcloud/arabic-token-optimizer",
+  "description": "High-efficiency Arabic text compressor and token optimizer reducing LLM token billing by 25-40% in pure PHP 8.2+",
+  "type": "library",
+  "license": "MIT",
+  "keywords": [
+    "eidcloud",
+    "arabic-nlp",
+    "token-optimizer",
+    "llm-cost-reduction",
+    "arabic-llm",
+    "text-compression",
+    "php8"
+  ],
+  "authors": [
+    {
+      "name": "Eng. MHD. Shadi AL-Hasan",
+      "email": "mhd.shadi.alhasan@gmail.com",
+      "homepage": "https://github.com/shadialhasan",
+      "role": "Lead Architect & Author"
+    }
+  ],
+  "require": {
+    "php": ">=8.2.0",
+    "ext-mbstring": "*"
+  },
+  "autoload": {
+    "psr-4": {
+      "EidCloud\\ArabicTokenOptimizer\\": "src/"
+    }
+  },
+  "bin": [
+    "bin/eidcloud-arabic-opt"
+  ],
+  "scripts": {
+    "test": "php tests/run_tests.php"
+  },
+  "config": {
+    "sort-packages": true
+  },
+  "minimum-stability": "stable"
+}
